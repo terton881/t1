@@ -2,6 +2,7 @@
 #include "gui.h"
 #include <vector>
 #include <stdio.h>
+#include <string.h>
 
 static const char* kVertShape = R"GLSL(
 #version 330 core
@@ -221,7 +222,7 @@ uniform sampler2D uFont;
 uniform vec3 uColor;
 out vec4 FragColor;
 void main() {
-    float a = texture(uFont, vUV).r;
+    float a = texture(uFont, vUV).a;
     FragColor = vec4(uColor, a);
 }
 )GLSL";
@@ -248,7 +249,7 @@ bool RendererInit(Renderer& r) {
     r.progText = LinkProgram(vs, fs);
     gl.glDeleteShader(vs); gl.glDeleteShader(fs);
 
-    if (!r.progShape || !r.progUI) return false;
+    if (!r.progShape || !r.progUI || !r.progText) return false;
 
     // Default camera
     r.cam.distance = 520.0f;
@@ -481,64 +482,82 @@ void DrawLine2D(float x0, float y0, float x1, float y1, Vec3 color, float alpha,
 }
 
 void DrawText2D(float x, float y, const char* text, Vec3 color, float scale) {
-    if (!g_fontTex || !g_rendererForUI || !text[0]) return;
+    if (!g_fontTex || !g_rendererForUI || !g_rendererForUI->progText || !text || !text[0]) return;
+
+    size_t len = strlen(text);
+    if (len == 0) return;
+
+    std::vector<float> verts;
+    verts.reserve(len * 6 * 4);
+
+    float lineH = 18.0f * scale;
+    float penX = x;
+
+    for (size_t i = 0; i < len; ++i) {
+        unsigned char c = (unsigned char)text[i];
+        if (c < 32 || c > 126) c = '?';
+
+        float u0 = g_glyphU0[c], v0 = g_glyphV0[c];
+        float u1 = g_glyphU1[c], v1 = g_glyphV1[c];
+        if (u1 <= u0 || v1 <= v0) {
+            penX += 6.0f * scale;
+            continue;
+        }
+
+        float adv = g_glyphAdvance[c] * scale;
+        float physW = adv;
+        float physH = lineH;
+
+        float x0 = penX;
+        float y0 = y;
+        float x1 = penX + physW;
+        float y1 = y + physH;
+
+        auto push = [&](float px, float py, float u, float v) {
+            verts.push_back(px); verts.push_back(py);
+            verts.push_back(u);  verts.push_back(v);
+        };
+
+        push(x0, y0, u0, v0);
+        push(x1, y0, u1, v0);
+        push(x1, y1, u1, v1);
+        push(x0, y0, u0, v0);
+        push(x1, y1, u1, v1);
+        push(x0, y1, u0, v1);
+
+        penX += adv;
+    }
+
+    if (verts.empty()) return;
+
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
     gl.glUseProgram(g_rendererForUI->progText);
-    // Critical: the ortho matrix must be set on *this* program's uOrtho (rects use their own Apply, text was missing it)
     GUISetOrthoForProgram(g_rendererForUI->progText);
 
     gl.glActiveTexture(GL_TEXTURE0);
     gl.glBindTexture(GL_TEXTURE_2D, g_fontTex);
     GLint loc = gl.glGetUniformLocation(g_rendererForUI->progText, "uFont");
-    if (loc>=0) gl.glUniform1i(loc, 0);
+    if (loc >= 0) gl.glUniform1i(loc, 0);
     loc = gl.glGetUniformLocation(g_rendererForUI->progText, "uColor");
-    if (loc>=0) gl.glUniform3fv(loc, 1, &color.x);
+    if (loc >= 0) gl.glUniform3fv(loc, 1, &color.x);
 
-    // Use sensible on-screen size. Atlas cells now 24x28 for reliable clean glyph rendering (with padding).
-    // Inset UV samples the inner glyph area (avoiding cell padding) so letters have proper shape, not blocks.
-    // Tuned phys size + button widths for readability and fit on dark panels (high contrast bright text).
-    float phys_cw = 14.0f * scale;
-    float phys_ch = 16.0f * scale;
-    for (const char* p = text; *p; ++p) {
-        unsigned char c = (unsigned char)*p;
-        if (c < 32 || c > 126) c = '?';
-        float u0 = g_glyphU[c];
-        float gw_full = g_glyphW[c];
-        float v0 = g_glyphV[c];  // image v for top of strip (visual top row has small v0)
-        float dv_full = 1.0f / 6.0f;
-
-        // Inset to the glyph area inside cell (good padding for 24x28 cells)
-        float u = u0 + gw_full * 0.08f;
-        float gw = gw_full * 0.84f;
-        float v_img_top = v0 + dv_full * 0.06f;
-        float dv = dv_full * 0.88f;
-        float v_img_bot = v_img_top + dv;
-
-        // Invert v so that visual top of atlas (small v_img) maps to high v in our y-up ortho (high y on screen)
-        float v_bot = 1.0f - v_img_bot;  // for low screen y
-        float v_top = 1.0f - v_img_top;  // for high screen y
-
-        float verts[24] = {
-            x, y,          u, v_bot,
-            x+phys_cw, y,  u+gw, v_bot,
-            x+phys_cw, y+phys_ch, u+gw, v_top,
-            x, y,          u, v_bot,
-            x+phys_cw, y+phys_ch, u+gw, v_top,
-            x, y+phys_ch,  u, v_top
-        };
-        // upload + draw small
-        GLuint vao,vbo; gl.glGenVertexArrays(1,&vao);gl.glGenBuffers(1,&vbo);
-        gl.glBindVertexArray(vao);
-        gl.glBindBuffer(GL_ARRAY_BUFFER, vbo);
-        gl.glBufferData(GL_ARRAY_BUFFER, sizeof(verts), verts, GL_DYNAMIC_DRAW);
-        gl.glEnableVertexAttribArray(0);
-        gl.glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 4*4, 0);
-        gl.glEnableVertexAttribArray(1);
-        gl.glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 4*4, (void*)(2*4));
-        glDrawArrays(GL_TRIANGLES, 0, 6);
-        gl.glDeleteVertexArrays(1,&vao); gl.glDeleteBuffers(1,&vbo);
-        x += phys_cw * 0.85f;  // monospace advance tuned for readability and fit
-    }
+    GLuint vao = 0, vbo = 0;
+    gl.glGenVertexArrays(1, &vao);
+    gl.glGenBuffers(1, &vbo);
+    gl.glBindVertexArray(vao);
+    gl.glBindBuffer(GL_ARRAY_BUFFER, vbo);
+    gl.glBufferData(GL_ARRAY_BUFFER, verts.size() * sizeof(float), verts.data(), GL_DYNAMIC_DRAW);
+    gl.glEnableVertexAttribArray(0);
+    gl.glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)0);
+    gl.glEnableVertexAttribArray(1);
+    gl.glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)(2 * sizeof(float)));
+    glDrawArrays(GL_TRIANGLES, 0, (GLsizei)(verts.size() / 4));
     gl.glBindVertexArray(0);
+    gl.glDeleteVertexArrays(1, &vao);
+    gl.glDeleteBuffers(1, &vbo);
+
     gl.glUseProgram(0);
     gl.glBindTexture(GL_TEXTURE_2D, 0);
 }

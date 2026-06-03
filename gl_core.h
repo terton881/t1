@@ -24,6 +24,8 @@
 #define GL_SAMPLES                        0x80A9
 #define GL_PROGRAM_POINT_SIZE             0x8642
 #define GL_R8                             0x8229
+#define GL_RGBA                           0x1908
+#define GL_RGBA8                          0x8058
 
 typedef ptrdiff_t GLsizeiptr;
 typedef ptrdiff_t GLintptr;

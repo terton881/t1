@@ -226,9 +226,10 @@ void Label(const char* text, float x, float y, Vec3 col, float sc) {
 int ShapeGrid(float x, float y, int current, float btnW, float btnH) {
     int clicked = -1;
     float pad = 4;
+    const int gridCols = 5;
     for (int i = 0; i < SHAPE_COUNT; ++i) {
-        float cx = x + (i % 5) * (btnW + pad);
-        float cy = y - (i / 5) * (btnH + pad);
+        float cx = x + (i % gridCols) * (btnW + pad);
+        float cy = y - (i / gridCols) * (btnH + pad);
         bool sel = (i == current);
         if (g_rendererForUI) {
             gl.glUseProgram(g_rendererForUI->progUI);
@@ -273,13 +274,19 @@ int PresetBar(float x, float y, int currentPreset) {
 
 GLuint g_fontTex = 0;
 int g_fontTexW = 0, g_fontTexH = 0;
-float g_glyphU[128], g_glyphV[128], g_glyphW[128];
+float g_glyphU0[128], g_glyphV0[128], g_glyphU1[128], g_glyphV1[128];
+float g_glyphAdvance[128];
+
+static void ClearGlyphMetrics(int c) {
+    g_glyphU0[c] = g_glyphV0[c] = g_glyphU1[c] = g_glyphV1[c] = 0;
+    g_glyphAdvance[c] = 0;
+}
 
 bool CreateFontAtlas(HDC hdcRef) {
     const int cols = 16;
-    const int rows = 6;
-    const int cw = 24;   // even larger cells for reliable glyph rendering without clipping or padding issues
-    const int ch = 28;
+    const int rows = 8;
+    const int cw = 20;
+    const int ch = 24;
     const int texW = cols * cw;
     const int texH = rows * ch;
 
@@ -287,25 +294,29 @@ bool CreateFontAtlas(HDC hdcRef) {
     BITMAPINFO bmi = {0};
     bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
     bmi.bmiHeader.biWidth = texW;
-    bmi.bmiHeader.biHeight = -texH;
+    bmi.bmiHeader.biHeight = -texH; // top-down DIB
     bmi.bmiHeader.biPlanes = 1;
     bmi.bmiHeader.biBitCount = 32;
     bmi.bmiHeader.biCompression = BI_RGB;
 
     void* bits = nullptr;
     HBITMAP hbmp = CreateDIBSection(memDC, &bmi, DIB_RGB_COLORS, &bits, NULL, 0);
+    if (!hbmp || !bits) {
+        DeleteDC(memDC);
+        return false;
+    }
     HBITMAP oldBmp = (HBITMAP)SelectObject(memDC, hbmp);
 
-    RECT rc = {0,0,texW,texH};
-    HBRUSH br = CreateSolidBrush(RGB(0,0,0));
+    RECT rc = {0, 0, texW, texH};
+    HBRUSH br = CreateSolidBrush(RGB(0, 0, 0));
     FillRect(memDC, &rc, br);
     DeleteObject(br);
 
-    HFONT font = CreateFontA(ch - 8, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+    HFONT font = CreateFontA(ch - 6, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
         DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
         ANTIALIASED_QUALITY, DEFAULT_PITCH | FF_DONTCARE, "Consolas");
     HFONT oldF = (HFONT)SelectObject(memDC, font);
-    SetTextColor(memDC, RGB(255,255,255));
+    SetTextColor(memDC, RGB(255, 255, 255));
     SetBkMode(memDC, TRANSPARENT);
 
     for (int c = 32; c < 127; ++c) {
@@ -313,21 +324,37 @@ bool CreateFontAtlas(HDC hdcRef) {
         int row = (c - 32) / cols;
         if (row >= rows) break;
         char chs[2] = {(char)c, 0};
-        TextOutA(memDC, col * cw + 3, row * ch + 2, chs, 1);  // more padding
+        TextOutA(memDC, col * cw + 2, row * ch + 2, chs, 1);
     }
 
-    GdiFlush();  // ensure all GDI drawing is flushed to the DIB before reading bits
+    GdiFlush();
 
     SelectObject(memDC, oldF);
     DeleteObject(font);
 
     unsigned char* alpha = new unsigned char[texW * texH];
-    for (int i = 0; i < texW * texH; ++i) {
-        unsigned char* px = (unsigned char*)bits + i * 4;
-        // For ANTIALIASED_QUALITY we get grayscale; average channels for good coverage mask.
-        // px[0]=B, [1]=G, [2]=R (typical 32bpp DIB)
-        int val = (px[2] + px[1] + px[0]) / 3;
-        alpha[i] = (unsigned char)(val > 255 ? 255 : val);
+    for (int y = 0; y < texH; ++y) {
+        for (int x = 0; x < texW; ++x) {
+            int i = y * texW + x;
+            unsigned char* px = (unsigned char*)bits + i * 4;
+            int val = (px[2] + px[1] + px[0]) / 3;
+            alpha[i] = (unsigned char)(val > 255 ? 255 : val);
+        }
+    }
+
+    // Upload with visual top at GL v=1 (flip rows for standard OpenGL tex coords)
+    unsigned char* rgba = new unsigned char[texW * texH * 4];
+    for (int y = 0; y < texH; ++y) {
+        int srcY = y;
+        int dstY = texH - 1 - y;
+        for (int x = 0; x < texW; ++x) {
+            unsigned char a = alpha[srcY * texW + x];
+            int di = (dstY * texW + x) * 4;
+            rgba[di + 0] = 255;
+            rgba[di + 1] = 255;
+            rgba[di + 2] = 255;
+            rgba[di + 3] = a;
+        }
     }
 
     if (g_fontTex) gl.glDeleteTextures(1, &g_fontTex);
@@ -335,25 +362,58 @@ bool CreateFontAtlas(HDC hdcRef) {
     gl.glBindTexture(GL_TEXTURE_2D, g_fontTex);
     gl.glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
     gl.glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-    gl.glTexImage2D(GL_TEXTURE_2D, 0, GL_R8, texW, texH, 0, GL_RED, GL_UNSIGNED_BYTE, alpha);
+    gl.glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    gl.glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+    gl.glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, texW, texH, 0, GL_RGBA, GL_UNSIGNED_BYTE, rgba);
     gl.glBindTexture(GL_TEXTURE_2D, 0);
 
-    delete[] alpha;
+    delete[] rgba;
 
     g_fontTexW = texW;
     g_fontTexH = texH;
 
-    for (int c = 0; c < 128; ++c) {
-        if (c < 32 || c > 126) { g_glyphU[c] = 0; g_glyphV[c] = 0; g_glyphW[c] = 0; continue; }
+    for (int c = 0; c < 128; ++c) ClearGlyphMetrics(c);
+
+    const int thresh = 24;
+    for (int c = 32; c < 127; ++c) {
         int idx = c - 32;
         int col = idx % cols;
         int row = idx / cols;
-        g_glyphU[c] = float(col * cw) / texW;
-        // Standard: v = 0 at top of image data (visual top row for row=0). We will invert in DrawText2D quad to map visual top to high v in our y-up ortho.
-        float rowH = 1.0f / rows;
-        g_glyphV[c] = float(row) * rowH;  // v for the top of this visual row strip in image space
-        g_glyphW[c] = float(cw) / texW;
+        if (row >= rows) break;
+
+        int x0 = col * cw;
+        int y0 = row * ch;
+        int minX = x0 + cw, maxX = x0 - 1;
+        int minY = y0 + ch, maxY = y0 - 1;
+        for (int py = y0; py < y0 + ch; ++py) {
+            for (int px = x0; px < x0 + cw; ++px) {
+                if (alpha[py * texW + px] > thresh) {
+                    if (px < minX) minX = px;
+                    if (px > maxX) maxX = px;
+                    if (py < minY) minY = py;
+                    if (py > maxY) maxY = py;
+                }
+            }
+        }
+
+        if (maxX < minX || maxY < minY) {
+            minX = x0 + 2; maxX = x0 + cw - 3;
+            minY = y0 + 2; maxY = y0 + ch - 3;
+        }
+
+        // OpenGL v: 1 at visual top (y=0), 0 at bottom — matches flipped upload
+        g_glyphU0[c] = float(minX) / texW;
+        g_glyphU1[c] = float(maxX + 1) / texW;
+        g_glyphV1[c] = 1.0f - float(minY) / texH;
+        g_glyphV0[c] = 1.0f - float(maxY + 1) / texH;
+        g_glyphAdvance[c] = float(maxX - minX + 3);
+        if (g_glyphAdvance[c] < 6.0f) g_glyphAdvance[c] = 8.0f;
     }
+
+    g_glyphAdvance[(int)' '] = 6.0f;
+
+    delete[] alpha;
 
     SelectObject(memDC, oldBmp);
     DeleteObject(hbmp);

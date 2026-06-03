@@ -52,7 +52,7 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE, LPSTR, int nShow) {
     }
 
     g_hWnd = CreateWindowEx(0, L"ShapeIntersectGL4",
-        L"Shape Intersection Lab — Modern OpenGL + Shaders",
+        L"Shape Intersection Lab - Modern OpenGL + Shaders",
         WS_OVERLAPPEDWINDOW | WS_VISIBLE,
         CW_USEDEFAULT, CW_USEDEFAULT, g_winW, g_winH,
         NULL, NULL, hInst, NULL);
@@ -90,7 +90,10 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE, LPSTR, int nShow) {
     SetUIRenderer(&g_renderer);
 
     // Font for GUI text
-    CreateFontAtlas(g_hdc);
+    if (!CreateFontAtlas(g_hdc)) {
+        MessageBoxA(NULL, "Font atlas creation failed", "GUI", MB_ICONERROR);
+        return 1;
+    }
 
     g_scene.InitDefault();
 
@@ -353,7 +356,7 @@ void RenderFrame() {
     // Left control panel - anchored near bottom for stable clean look, reasonable fixed height
     float px = 14;
     float panelY = 8.0f;     // bottom edge (in y-up coords)
-    float panelH = 340.0f;
+    float panelH = 368.0f;
     Panel(px, panelY, 320, panelH, "CONTROLS", 0.94f);
 
     // Inner content laid out from top of this panel (y-up). Avoids winH magic and overlap.
@@ -367,8 +370,8 @@ void RenderFrame() {
         SampleAndComputeIntersections(g_scene, 2000, g_renderer);
     }
 
-    Label("SHAPE B", px + 10, top - 72, Vec3(1.0f,0.75f,0.5f), 0.95f);
-    int newB = ShapeGrid(px + 8, top - 98, g_scene.indexB, 56, 26);
+    Label("SHAPE B", px + 10, top - 100, Vec3(1.0f,0.75f,0.5f), 0.95f);
+    int newB = ShapeGrid(px + 8, top - 126, g_scene.indexB, 56, 26);
     if (newB >= 0) {
         g_scene.GetB().type = (ShapeType)newB;
         SampleAndComputeIntersections(g_scene, 2000, g_renderer);
@@ -378,7 +381,7 @@ void RenderFrame() {
     auto& A = g_scene.GetA();
     auto& B = g_scene.GetB();
 
-    float sy = top - 138;
+    float sy = top - 166;
     Slider("A Scale", px+8, sy, 248, 18, A.scale.x, 10.0f, 280.0f, "%.0f"); A.scale.y = A.scale.z = A.scale.x;
     sy -= 23;
     Slider("B Scale", px+8, sy, 248, 18, B.scale.x, 10.0f, 280.0f, "%.0f"); B.scale.y = B.scale.z = B.scale.x;

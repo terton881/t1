@@ -50,7 +50,8 @@ void DestroyFontAtlas();
 // Font state shared for text rendering (used by renderer DrawText2D too)
 extern GLuint g_fontTex;
 extern int g_fontTexW, g_fontTexH;
-extern float g_glyphU[128], g_glyphV[128], g_glyphW[128];
+extern float g_glyphU0[128], g_glyphV0[128], g_glyphU1[128], g_glyphV1[128];
+extern float g_glyphAdvance[128]; // screen pixels at scale 1.0
 
 // Allow other modules (renderer text draw) to apply the current ortho to a program (e.g. text prog)
 void GUISetOrthoForProgram(GLuint prog);
