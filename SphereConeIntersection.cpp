@@ -27,7 +27,7 @@ const double SPHERE_RADIUS = 100.0;
 // Cone parameters
 const double CONE_BASE_RADIUS = 80.0;
 const double CONE_HEIGHT = 200.0;
-const double CONE ApexAngle = atan(CONE_BASE_RADIUS / CONE_HEIGHT);
+const double CONE_APEX_ANGLE = atan(CONE_BASE_RADIUS / CONE_HEIGHT);
 
 // Timer ID
 #define IDT_TIMER1 1
@@ -100,16 +100,18 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
     switch (msg)
     {
         case WM_CREATE:
+        {
             // Create off-screen bitmap for double buffering
             HDC hdc = GetDC(hwnd);
             g_hdcMemory = CreateCompatibleDC(hdc);
             g_hBitmap = CreateCompatibleBitmap(hdc, 800, 600);
             g_hOldBitmap = (HBITMAP)SelectObject(g_hdcMemory, g_hBitmap);
             ReleaseDC(hwnd, hdc);
-            
+
             // Start timer for animation
             SetTimer(hwnd, IDT_TIMER1, 30, NULL);
             return 0;
+        }
             
         case WM_TIMER:
             if (wParam == IDT_TIMER1)
@@ -137,24 +139,26 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
         {
             PAINTSTRUCT ps;
             HDC hdc = BeginPaint(hwnd, &ps);
-            
+
             // Draw to off-screen buffer
             DrawScene(g_hdcMemory);
-            
+
             // Copy to screen
             BitBlt(hdc, 0, 0, 800, 600, g_hdcMemory, 0, 0, SRCCOPY);
-            
+
             EndPaint(hwnd, &ps);
             return 0;
         }
         
         case WM_DESTROY:
+        {
             KillTimer(hwnd, IDT_TIMER1);
             SelectObject(g_hdcMemory, g_hOldBitmap);
             DeleteObject(g_hBitmap);
             DeleteDC(g_hdcMemory);
             PostQuitMessage(0);
             return 0;
+        }
     }
     
     return DefWindowProc(hwnd, msg, wParam, lParam);

@@ -1,1 +1,35 @@
-Nothing to output - the change list contains only a source code file (.cpp) which should not be ignored.
+# Build and intermediate files
+Debug/
+Release/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+
+# Visual Studio 2015+
+.vs/
+*.natvis
+*.natspec
+*.natsettings.json
+*.natlog
+
+# Visual Studio Code
+.vscode/
+
+# C++ specific
+*.exe
+*.dll
+*.lib
+*.obj
+*.pdb
+*.ilk
+*.exp
+*.manifest
+
+# Project files
+*.vcxproj.user
+*.vcxproj.filters.user
+
+# Other
+Thumbs.db
+.DS_Store
