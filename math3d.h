@@ -32,6 +32,23 @@ inline Vec3 Normalize(Vec3 a) {
 }
 inline Vec3 Lerp(Vec3 a, Vec3 b, float t) { return a + (b - a) * t; }
 
+struct Vec2 {
+    float x, y;
+    Vec2() : x(0), y(0) {}
+    Vec2(float _x, float _y) : x(_x), y(_y) {}
+};
+
+inline Vec2 operator+(Vec2 a, Vec2 b) { return Vec2(a.x + b.x, a.y + b.y); }
+inline Vec2 operator-(Vec2 a, Vec2 b) { return Vec2(a.x - b.x, a.y - b.y); }
+inline Vec2 operator*(Vec2 a, float s) { return Vec2(a.x * s, a.y * s); }
+inline float Dot(Vec2 a, Vec2 b) { return a.x * b.x + a.y * b.y; }
+
+struct Rect2D {
+    float x = 0, y = 0, w = 0, h = 0;
+    Rect2D() = default;
+    Rect2D(float _x, float _y, float _w, float _h) : x(_x), y(_y), w(_w), h(_h) {}
+};
+
 struct Vec4 {
     float x, y, z, w;
     Vec4() : x(0), y(0), z(0), w(0) {}
