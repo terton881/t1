@@ -76,9 +76,13 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="app.cpp" />
+    <ClCompile Include="document.cpp" />
     <ClCompile Include="gl_core.cpp" />
     <ClCompile Include="gui.cpp" />
+    <ClCompile Include="intersection.cpp" />
     <ClCompile Include="main.cpp" />
+    <ClCompile Include="projection.cpp" />
     <ClCompile Include="renderer.cpp" />
     <ClCompile Include="shapes.cpp" />
   </ItemGroup>

@@ -562,122 +562,121 @@ void DrawText2D(float x, float y, const char* text, Vec3 color, float scale) {
     gl.glBindTexture(GL_TEXTURE_2D, 0);
 }
 
+void DrawLineStrip3D(const Renderer& r, const std::vector<Vec3>& pts, Vec3 color, float alpha, float lineWidth) {
+    if (pts.size() < 2 || !r.progUI) return;
+    glDisable(GL_DEPTH_TEST);
+    gl.glUseProgram(r.progUI);
+    Mat4 vp = Mul(r.cam.GetProj(), r.cam.GetView());
+    GLint loc = gl.glGetUniformLocation(r.progUI, "uOrtho");
+    if (loc >= 0) gl.glUniformMatrix4fv(loc, 1, GL_FALSE, vp.m);
+    loc = gl.glGetUniformLocation(r.progUI, "uRectColor");
+    if (loc >= 0) gl.glUniform4f(loc, color.x, color.y, color.z, alpha);
+
+    GLuint vao = 0, vbo = 0;
+    gl.glGenVertexArrays(1, &vao);
+    gl.glGenBuffers(1, &vbo);
+    gl.glBindVertexArray(vao);
+    gl.glBindBuffer(GL_ARRAY_BUFFER, vbo);
+    gl.glBufferData(GL_ARRAY_BUFFER, pts.size() * sizeof(Vec3), pts.data(), GL_DYNAMIC_DRAW);
+    gl.glEnableVertexAttribArray(0);
+    gl.glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(Vec3), 0);
+    glLineWidth(lineWidth);
+    glDrawArrays(GL_LINE_STRIP, 0, (GLsizei)pts.size());
+    glLineWidth(1.0f);
+    gl.glBindVertexArray(0);
+    gl.glDeleteVertexArrays(1, &vao);
+    gl.glDeleteBuffers(1, &vbo);
+    gl.glUseProgram(0);
+    glEnable(GL_DEPTH_TEST);
+}
+
+void DrawIntersectionCurve3D(const Renderer& r, const std::vector<Vec3>& curve) {
+    if (!r.showCurve || curve.size() < 2) return;
+    DrawLineStrip3D(r, curve, Vec3(1.0f, 0.85f, 0.2f), 0.95f, 2.8f);
+}
+
+void DrawPolyline2D(const std::vector<Vec2>& pts, Vec3 color, float alpha, bool closed) {
+    if (pts.size() < 2) return;
+    for (size_t i = 0; i + 1 < pts.size(); ++i)
+        DrawLine2D(pts[i].x, pts[i].y, pts[i + 1].x, pts[i + 1].y, color, alpha, 1.2f);
+    if (closed && pts.size() > 2)
+        DrawLine2D(pts.back().x, pts.back().y, pts.front().x, pts.front().y, color, alpha, 1.2f);
+}
+
+void DrawGrid2D(Rect2D area, int divisions, Vec3 color, float alpha) {
+    if (divisions < 1) divisions = 1;
+    float dx = area.w / divisions;
+    float dy = area.h / divisions;
+    for (int i = 0; i <= divisions; ++i) {
+        float x = area.x + dx * i;
+        DrawLine2D(x, area.y, x, area.y + area.h, color, alpha, 1.0f);
+        float y = area.y + dy * i;
+        DrawLine2D(area.x, y, area.x + area.w, y, color, alpha, 1.0f);
+    }
+}
+
+static Vec2 MapSheetPoint(Vec2 modelPt, const ProjectionSheet& sheet, float cx, float cy, float halfW, float halfH) {
+    Vec2 d = modelPt - sheet.origin;
+    float k = sheet.scale * 0.42f;
+    return Vec2(cx + d.x * k * halfW, cy + d.y * k * halfH);
+}
+
+static void DrawProjectedView(const ProjectionSheet& sheet, const ProjectedCurve2D& curve,
+    const ProjectedCurve2D& outlineA, const ProjectedCurve2D& outlineB,
+    Rect2D viewArea, const char* label, bool showOutlines)
+{
+    DrawRect2D(viewArea.x, viewArea.y, viewArea.w, viewArea.h, Vec3(0.95f, 0.96f, 0.98f), 0.98f);
+    DrawGrid2D(viewArea, 8, Vec3(0.82f, 0.84f, 0.88f), 0.55f);
+    DrawRect2D(viewArea.x, viewArea.y, viewArea.w, viewArea.h, Vec3(0.35f, 0.38f, 0.42f), 0.35f);
+
+    float cx = viewArea.x + viewArea.w * 0.5f;
+    float cy = viewArea.y + viewArea.h * 0.5f;
+    float halfW = viewArea.w * 0.5f;
+    float halfH = viewArea.h * 0.5f;
+
+    if (showOutlines && outlineA.points.size() > 2) {
+        std::vector<Vec2> scr;
+        scr.reserve(outlineA.points.size());
+        for (auto& p : outlineA.points) scr.push_back(MapSheetPoint(p, sheet, cx, cy, halfW, halfH));
+        DrawPolyline2D(scr, Vec3(0.25f, 0.55f, 0.95f), 0.35f, false);
+    }
+    if (showOutlines && outlineB.points.size() > 2) {
+        std::vector<Vec2> scr;
+        scr.reserve(outlineB.points.size());
+        for (auto& p : outlineB.points) scr.push_back(MapSheetPoint(p, sheet, cx, cy, halfW, halfH));
+        DrawPolyline2D(scr, Vec3(0.95f, 0.45f, 0.15f), 0.35f, false);
+    }
+    if (curve.points.size() > 1) {
+        std::vector<Vec2> scr;
+        scr.reserve(curve.points.size());
+        for (auto& p : curve.points) scr.push_back(MapSheetPoint(p, sheet, cx, cy, halfW, halfH));
+        DrawPolyline2D(scr, Vec3(1.0f, 0.75f, 0.1f), 0.95f, true);
+    }
+
+    Label(label, viewArea.x + 6, viewArea.y + viewArea.h - 16, Vec3(0.2f, 0.22f, 0.28f), 0.85f);
+}
+
+void DrawProjectionSheet2D(const ProjectionSheet& sheet, Rect2D area, bool showOutlines) {
+    DrawRect2D(area.x, area.y, area.w, area.h, Vec3(0.88f, 0.9f, 0.93f), 0.96f);
+    DrawRect2D(area.x + 2, area.y + 2, area.w - 4, area.h - 4, Vec3(0.2f, 0.22f, 0.28f), 0.5f);
+
+    float pad = 8.0f;
+    float vw = (area.w - pad * 4.0f) / 3.0f;
+    float vh = area.h - pad * 2.0f - 20.0f;
+    float y0 = area.y + pad;
+
+    Rect2D front(area.x + pad, y0, vw, vh);
+    Rect2D top(area.x + pad * 2 + vw, y0, vw, vh);
+    Rect2D right(area.x + pad * 3 + vw * 2, y0, vw, vh);
+
+    DrawProjectedView(sheet, sheet.curveFront, sheet.outlineAFront, sheet.outlineBFront, front, "FRONT", showOutlines);
+    DrawProjectedView(sheet, sheet.curveTop, sheet.outlineATop, sheet.outlineBTop, top, "TOP", showOutlines);
+    DrawProjectedView(sheet, sheet.curveRight, sheet.outlineARight, sheet.outlineBRight, right, "RIGHT", showOutlines);
+
+    Label("DRAWING SHEET", area.x + 10, area.y + area.h - 14, Vec3(0.75f, 0.78f, 0.85f), 0.9f);
+}
+
 bool ReloadShaders(Renderer& r) {
-    // For now recompile from embedded. Later: try load from shaders/*.glsl
     RendererShutdown(r);
     return RendererInit(r);
 }
-
-// ===================== Intersection sampling (CPU, accurate) =====================
-
-// Local transform (matches math + shader + shapes inside test)
-Vec3 TransformToLocal(Vec3 p, Vec3 pos, Vec3 eulerDeg, Vec3 scale3) {
-    Vec3 d = p - pos;
-    d.x /= (scale3.x == 0 ? 1 : scale3.x);
-    d.y /= (scale3.y == 0 ? 1 : scale3.y);
-    d.z /= (scale3.z == 0 ? 1 : scale3.z);
-    float rx = -M3D_DEG2RAD(eulerDeg.x);
-    float ry = -M3D_DEG2RAD(eulerDeg.y);
-    float rz = -M3D_DEG2RAD(eulerDeg.z);
-    Mat4 Ri = Mul(Mul(RotateZ(rz), RotateY(ry)), RotateX(rx));
-    return MulDir(Ri, d);
-}
-
-static void SampleSurface(const ShapeInstance& si, int maxPts, std::vector<Vec3>& outPts) {
-    outPts.clear();
-    ShapeType t = si.type;
-    int n = (int)sqrtf((float)maxPts);
-    if (n < 4) n = 4;
-    float sc = si.scale.x * 0.5f; // rough
-
-    if (t == SHAPE_SPHERE) {
-        for (int i=0; i<n; ++i) {
-            float phi = M3D_PI * (i+0.5f) / n;
-            for (int j=0; j<n*2; ++j) {
-                float th = 2.0f * M3D_PI * j / (n*2);
-                Vec3 l(cosf(phi)*cosf(th), sinf(phi), cosf(phi)*sinf(th));
-                outPts.push_back( MulPoint(si.GetModel(), l) );
-                if ((int)outPts.size() >= maxPts) return;
-            }
-        }
-    } else if (t == SHAPE_CONE || t == SHAPE_CYLINDER) {
-        // similar to original
-        float hh = 0.95f;
-        for (int i=0; i<n; ++i) {
-            float f = float(i) / (n-1);
-            float y = (t==SHAPE_CONE ? (hh - f*2*hh) : (hh - f*2*hh));
-            float rad = (t==SHAPE_CONE ? 0.85f * (1.0f-f) : 0.75f);
-            for (int j=0; j < n*2; ++j) {
-                float th = 2*M3D_PI * j / (n*2);
-                Vec3 l( rad * cosf(th), y, rad * sinf(th) );
-                outPts.push_back( MulPoint(si.GetModel(), l) );
-                if ((int)outPts.size() >= maxPts) return;
-            }
-        }
-    } else if (t == SHAPE_TORUS) {
-        // rough
-        for (int i=0; i<n*2; ++i) {
-            float a = 2*M3D_PI * i / (n*2);
-            for (int j=0; j<n; ++j) {
-                float b = 2*M3D_PI * j / n;
-                float R=0.7f, r=0.32f;
-                Vec3 l( (R + r*cosf(b))*cosf(a), r*sinf(b), (R + r*cosf(b))*sinf(a) );
-                outPts.push_back(MulPoint(si.GetModel(), l));
-                if ((int)outPts.size()>=maxPts) return;
-            }
-        }
-    } else {
-        // poly: sample faces
-        ShapeMeshData md; ShapeGPUData gd;
-        GenerateUnitMesh(t, md, gd);
-        int ntris = (int)md.indices.size() / 3;
-        if (ntris < 1) ntris = 1;
-        int per = max(1, maxPts / ntris);
-        for (int ti=0; ti<ntris && (int)outPts.size()<maxPts; ++ti) {
-            int i0=md.indices[ti*3+0]*8, i1=md.indices[ti*3+1]*8, i2=md.indices[ti*3+2]*8;
-            Vec3 a(md.vertices[i0],md.vertices[i0+1],md.vertices[i0+2]);
-            Vec3 b(md.vertices[i1],md.vertices[i1+1],md.vertices[i1+2]);
-            Vec3 c(md.vertices[i2],md.vertices[i2+1],md.vertices[i2+2]);
-            for (int u=0; u<=2 && (int)outPts.size()<maxPts; ++u) {
-                for (int v=0; v<=2-u && (int)outPts.size()<maxPts; ++v) {
-                    float uu = float(u)/2.0f, vv=float(v)/2.0f, ww=1-uu-vv;
-                    Vec3 lp = a*ww + b*uu + c*vv;
-                    outPts.push_back( MulPoint(si.GetModel(), lp) );
-                }
-            }
-        }
-    }
-}
-
-void SampleAndComputeIntersections(ShapeScene& scene, int samplesPerShape, Renderer& r) {
-    r.intersectPtsA.clear();
-    r.intersectPtsB.clear();
-    if (scene.shapes.size() < 2) return;
-
-    const auto& A = scene.GetA();
-    const auto& B = scene.GetB();
-
-    std::vector<Vec3> surfA, surfB;
-    SampleSurface(A, samplesPerShape, surfA);
-    SampleSurface(B, samplesPerShape, surfB);
-
-    ShapeGPUData gA, gB;
-    ShapeMeshData dA,dB;
-    GenerateUnitMesh(A.type, dA, gA);
-    GenerateUnitMesh(B.type, dB, gB);
-
-    for (auto& p : surfA) {
-        Vec3 local = TransformToLocal(p, B.pos, B.euler, B.scale);
-        if (IsPointInsideLocal(B.type, local, gB)) {
-            r.intersectPtsA.push_back(p);
-        }
-    }
-    for (auto& p : surfB) {
-        Vec3 local = TransformToLocal(p, A.pos, A.euler, A.scale);
-        if (IsPointInsideLocal(A.type, local, gA)) {
-            r.intersectPtsB.push_back(p);
-        }
-    }
-}
-
-// (TransformToLocal defined earlier in this file)
